@@ -1,6 +1,6 @@
 # hdd-sleep-eject
 
-Put an internal SATA hard disk **to sleep and keep it asleep** on Windows, then bring it back with one click, no reboot needed.
+Stop an idle internal hard disk's **noise and vibration** on Windows: put it **to sleep and keep it asleep**, then bring it back with one click, no reboot needed.
 
 ## Why I made this
 

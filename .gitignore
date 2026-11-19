@@ -1,0 +1,8 @@
+# Machine-specific
+config.psd1
+log.txt
+state.txt
+device.txt
+# Sysinternals Handle may not be redistributed, download it yourself
+handle64.exe
+handle.exe

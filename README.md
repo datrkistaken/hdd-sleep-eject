@@ -41,7 +41,7 @@ Every command first checks the disk's **serial number**, so a renumbered disk is
 
 - Windows 10/11, Windows PowerShell 5.1, admin rights for the install.
 - **Hot Plug enabled in the BIOS/UEFI for the disk's SATA port.** Without it Windows treats the disk
-  as non-removable and refuses to eject it. Setup checks this for you.
+  as non-removable and refuses to eject it. Setup checks this for you. See [Enabling Hot Plug](#enabling-hot-plug).
 - **The disk must be the only device on its SATA controller.** `wake.ps1` restarts the whole controller,
   so it refuses to run if anything else is attached. Setup checks this too. Disks on a different controller (e.g. NVMe) are unaffected.
   This was true on the machine this was built on (AMD B450). It may not be true on yours.
@@ -50,6 +50,22 @@ Every command first checks the disk's **serial number**, so a renumbered disk is
   blocked sleep tells you *which program* is holding the disk. Setup offers to install it for you via winget
   (`winget install Microsoft.Sysinternals.Handle`), or you can put `handle64.exe` next to `install.ps1`.
   It isn't included here because its license doesn't allow redistribution.
+
+## Enabling Hot Plug
+
+Most desktop motherboards have a **Hot Plug** setting for each SATA port, and it is usually off by default.
+Menus differ between vendors and BIOS versions, but it should look something like this:
+
+1. Find out which SATA port the disk is on. The BIOS usually has a SATA information screen that lists each port with
+   the disk model connected to it.
+2. Enter the BIOS/UEFI setup (usually **Del** or **F2** at power-on) and switch to the advanced mode if there is one.
+3. Look for the SATA or storage settings, often called **SATA Configuration** or **Storage Configuration**
+   (on some boards under *Integrated Peripherals* or *IO Ports*).
+4. Set **Hot Plug** to **Enabled** for that disk's port, then save and exit.
+
+Only enable it for the port of the disk you want to sleep. After the reboot, run setup. The Hot Plug check should now pass.
+If you can't find the setting, search for "&lt;your motherboard model&gt; SATA hot plug". Some boards, especially laptops,
+don't have it at all, and then this tool can't work on that disk.
 
 ## Tested on
 

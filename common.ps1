@@ -39,14 +39,22 @@ function Get-DiskLetters($disk) {
     @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object DriveLetter | ForEach-Object { "$($_.DriveLetter)" })
 }
 
-# Partitions that hold a file system but have NO drive letter (e.g. mounted into a folder like C:\Data).
-# The open-file check works through drive letters, so it cannot see files open on these.
-# Hidden partitions without a file system (MSR, empty) are not listed: nothing can be open on them.
-function Get-UncheckedPartitions($disk) {
-    @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object { -not $_.DriveLetter } | Where-Object {
+# Every volume on the disk that holds a file system: a Name for messages and a Path to test-lock.
+# A volume with a drive letter is locked through it ('D'). One without a letter (Recovery, EFI,
+# mounted into a folder like C:\Data) is locked through its volume GUID path (\\?\Volume{...}),
+# so files open on it are caught too.
+# Partitions without a file system (MSR, empty) are skipped: nothing can be open on them.
+function Get-DiskVolumes($disk) {
+    @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | ForEach-Object {
         $v = Get-Volume -Partition $_ -ErrorAction SilentlyContinue
-        $v -and $v.FileSystem
-    } | ForEach-Object { "partition $($_.PartitionNumber)" })
+        if (-not ($v -and $v.FileSystem)) { return }
+        if ($_.DriveLetter) {
+            [pscustomobject]@{ Name = "$($_.DriveLetter):"; Path = "$($_.DriveLetter)" }
+        } else {
+            # An empty Path can't be opened, so the lock test fails and the volume counts as busy (safe side)
+            [pscustomobject]@{ Name = ('partition {0} ({1}, {2:N1} GB, no drive letter)' -f $_.PartitionNumber, $_.Type, ($_.Size / 1GB)); Path = "$($v.Path)" }
+        }
+    })
 }
 
 # Runs smartctl. Windows PowerShell 5.1 turns native stderr into terminating errors under 'Stop',
@@ -116,8 +124,12 @@ public static class HddSleepNative {
   static extern bool DeviceIoControl(SafeFileHandle h, uint code, IntPtr i, uint il, IntPtr o, uint ol, out uint r, IntPtr ov);
   // Tries to lock the volume and unlocks it right away. Windows only grants the lock when NO file
   // on the volume is open, so this is an exact "is anything using it?" test. 0 = free, else Win32 error.
-  public static int TryLockVolume(char letter) {
-    using (var h = CreateFileW(@"\\.\" + letter + ":", 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
+  // path: a drive letter ("D") or a volume GUID path ("\\?\Volume{...}\", the trailing \ is removed:
+  // with it CreateFile would open the root folder instead of the volume).
+  public static int TryLockVolume(string path) {
+    string dev = path.Length == 1 ? @"\\.\" + path + ":" : path.TrimEnd('\\');
+    if (dev.Length == 0) return 87; // ERROR_INVALID_PARAMETER
+    using (var h = CreateFileW(dev, 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
       if (h.IsInvalid) return Marshal.GetLastWin32Error();
       uint r;
       if (!DeviceIoControl(h, 0x00090018 /*FSCTL_LOCK_VOLUME*/, IntPtr.Zero, 0, IntPtr.Zero, 0, out r, IntPtr.Zero)) return Marshal.GetLastWin32Error();

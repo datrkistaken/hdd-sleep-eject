@@ -23,28 +23,21 @@ try {
     $letters = Get-DiskLetters $disk
     $path    = Get-SmartPath $disk
     $dev     = Get-TargetDevice
-
-    # 2) Safety, part 0: the open-file check below only sees volumes that have a drive letter.
-    #    A volume without one (mounted into a folder, or no letter at all) cannot be checked, so refuse.
-    #    (An offline disk has no mounted volumes, so nothing can be open on it.)
-    $unchecked = if ($disk.IsOffline) { @() } else { Get-UncheckedPartitions $disk }
-    if ($unchecked) {
-        Write-Log 'SLEEP' "CANCELLED - volume without a drive letter, open files can't be checked: $($unchecked -join ', ')"
-        Show-Message "The disk has a volume without a drive letter ($($unchecked -join ', ')).`n`nOpen files on it can't be checked, so the disk was not put to sleep for safety. Give it a drive letter in Disk Management." 'Could not put the disk to sleep' 48
-        exit 1
-    }
+    # Every volume, with or without a drive letter. (An offline disk has no mounted volumes, so nothing can be open on it.)
+    $volumes = if ($disk.IsOffline) { @() } else { Get-DiskVolumes $disk }
 
     # 2) Safety: is anything using the disk? Going offline would force its volumes closed and lose unsaved writes.
-    #    a) programs running from it, b) ANY open file on it (a volume can only be locked when nothing is open)
+    #    a) programs running from it, b) ANY open file on ANY of its volumes (a volume can only be locked when nothing is open)
     $users = Get-CimInstance Win32_Process | Where-Object {
         $p = $_; $letters | Where-Object { ($p.ExecutablePath -like "$($_):\*") -or ($p.CommandLine -like "*$($_):\*") }
     } | Select-Object -ExpandProperty Name -Unique
-    $busy = @($letters | Where-Object { [HddSleepNative]::TryLockVolume($_) -ne 0 })
+    $busy = @($volumes | Where-Object { [HddSleepNative]::TryLockVolume($_.Path) -ne 0 } | ForEach-Object Name)
     if ($users -or $busy) {
         $who = @($users) + @(Get-DiskHolders $disk $letters) | Sort-Object -Unique
         $whoText = if ($who) { $who -join "`n" } else { '(unknown program - see README: handle64.exe shows it)' }
-        Write-Log 'SLEEP' "CANCELLED - disk in use ($($busy -join ',') has open files): $($who -join ', ')"
-        Show-Message "Files on the disk are in use by:`n`n$whoText`n`nClose them first, then try again." 'Could not put the disk to sleep' 48
+        Write-Log 'SLEEP' "CANCELLED - disk in use (open files on: $($busy -join '; ')): $($who -join ', ')"
+        $where = if ($busy) { " ($($busy -join '; '))" } else { '' }
+        Show-Message "Files on the disk$where are in use by:`n`n$whoText`n`nClose them first, then try again." 'Could not put the disk to sleep' 48
         exit 1
     }
 

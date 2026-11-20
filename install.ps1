@@ -66,6 +66,15 @@ if (-not (Test-Path $Smartctl)) {
         exit 1
     }
 }
+# The tasks run smartctl as admin (and as SYSTEM at boot), so like handle64.exe it must sit where only
+# admins can change it. A copy in a user folder could be swapped by any program running as you.
+$protected = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') + '\' }
+if (-not ($protected | Where-Object { $Smartctl.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })) {
+    Write-Host "smartctl was found at $Smartctl, outside Program Files." -ForegroundColor Red
+    Write-Host 'The tasks run it as admin, so it must be installed for all users, e.g.:'
+    Write-Host '  winget install smartmontools.smartmontools'
+    exit 1
+}
 
 # --- Existing config? ----------------------------------------------------------------------
 $disk = $null
@@ -183,9 +192,9 @@ if ($handleSrc) { Copy-Item $handleSrc (Join-Path $dest 'handle64.exe') -Force; 
 # Written by install.ps1. Run install.ps1 again to pick another disk.
 @{
     # Serial number of the HDD to put to sleep (every command checks it first)
-    Serial       = '$Serial'
+    Serial       = '$($Serial -replace "'", "''")'
     # smartmontools path
-    SmartctlPath = '$Smartctl'
+    SmartctlPath = '$($Smartctl -replace "'", "''")'
 }
 "@ | Out-File -Encoding ascii $ConfigFile
 Write-Host "Saved config.psd1"

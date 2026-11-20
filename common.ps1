@@ -20,7 +20,12 @@ $DeviceFile = Join-Path $PSScriptRoot 'device.txt'     # PnP id of the disk, sav
 
 function Write-Log($who, $m) { "$(Get-Date -f 'yyyy-MM-dd HH:mm:ss') $who $m" | Out-File -Append -Encoding utf8 $LogFile }
 function Set-State($s) { $s | Out-File -Encoding ascii $StateFile }
-function Get-State { if (Test-Path $StateFile) { (Get-Content $StateFile -Raw).Trim() } else { 'awake' } }
+# A missing or empty file (e.g. power lost while writing it) counts as 'awake'.
+# "$(...)" turns $null (empty file) into '' so .Trim() can't fail.
+function Get-State {
+    $s = if (Test-Path $StateFile) { "$(Get-Content $StateFile -Raw)".Trim() }
+    if ($s) { $s } else { 'awake' }
+}
 
 function Show-Message($text, $title, $icon, $seconds = 0) {
     if ($script:Quiet) { return }   # the boot task runs as SYSTEM and cannot show windows
@@ -44,16 +49,18 @@ function Get-DiskLetters($disk) {
 # mounted into a folder like C:\Data) is locked through its volume GUID path (\\?\Volume{...}),
 # so files open on it are caught too.
 # Partitions without a file system (MSR, empty) are skipped: nothing can be open on them.
+# Throws if the partitions can't be read: an empty list would mean "nothing to check" and let sleep
+# take the disk offline unchecked. (ObjectNotFound = the disk simply has no partitions.)
 function Get-DiskVolumes($disk) {
-    @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | ForEach-Object {
+    $parts = @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue -ErrorVariable err)
+    if ($err | Where-Object { $_.CategoryInfo.Category -ne 'ObjectNotFound' }) { throw "Could not read the disk's partitions: $($err[0])" }
+    @($parts | ForEach-Object {
+        # A drive letter is enough to lock the volume, so it never depends on Get-Volume (which can fail for a moment)
+        if ($_.DriveLetter) { return [pscustomobject]@{ Name = "$($_.DriveLetter):"; Path = "$($_.DriveLetter)" } }
         $v = Get-Volume -Partition $_ -ErrorAction SilentlyContinue
         if (-not ($v -and $v.FileSystem)) { return }
-        if ($_.DriveLetter) {
-            [pscustomobject]@{ Name = "$($_.DriveLetter):"; Path = "$($_.DriveLetter)" }
-        } else {
-            # An empty Path can't be opened, so the lock test fails and the volume counts as busy (safe side)
-            [pscustomobject]@{ Name = ('partition {0} ({1}, {2:N1} GB, no drive letter)' -f $_.PartitionNumber, $_.Type, ($_.Size / 1GB)); Path = "$($v.Path)" }
-        }
+        # An empty Path can't be opened, so the lock test fails and the volume counts as busy (safe side)
+        [pscustomobject]@{ Name = ('partition {0} ({1}, {2:N1} GB, no drive letter)' -f $_.PartitionNumber, $_.Type, ($_.Size / 1GB)); Path = "$($v.Path)" }
     })
 }
 
@@ -91,10 +98,9 @@ function Get-TargetDevice {
     if ($disk) {
         $id = Get-DeviceIdFromDisk $disk
         $id | Out-File -Encoding ascii $DeviceFile
-    } elseif (Test-Path $DeviceFile) {
-        $id = (Get-Content $DeviceFile -Raw).Trim()
     } else {
-        throw 'Disk is not visible and no saved device id (device.txt) exists. Reboot once to bring it back.'
+        $id = if (Test-Path $DeviceFile) { "$(Get-Content $DeviceFile -Raw)".Trim() }
+        if (-not $id) { throw 'Disk is not visible and no saved device id (device.txt missing or empty). Reboot once to bring it back.' }
     }
     # The path is lowercase but Get-PnpDevice -InstanceId is case-sensitive, so compare with -eq (case-insensitive)
     $dev = Get-PnpDevice -Class DiskDrive | Where-Object { $_.InstanceId -eq $id } | Select-Object -First 1

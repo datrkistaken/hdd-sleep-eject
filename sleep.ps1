@@ -20,11 +20,11 @@ try {
 
     # 1) Look everything up while the disk still spins. Between the spin-down and the eject
     #    NOTHING may query the disk (Get-Disk etc. would wake it).
-    $letters = Get-DiskLetters $disk
-    $path    = Get-SmartPath $disk
-    $dev     = Get-TargetDevice
     # Every volume, with or without a drive letter. (An offline disk has no mounted volumes, so nothing can be open on it.)
     $volumes = if ($disk.IsOffline) { @() } else { Get-DiskVolumes $disk }
+    $letters = @($volumes | Where-Object { $_.Path.Length -eq 1 } | ForEach-Object Path)
+    $path    = Get-SmartPath $disk
+    $dev     = Get-TargetDevice
 
     # 2) Safety: is anything using the disk? Going offline would force its volumes closed and lose unsaved writes.
     #    a) programs running from it, b) ANY open file on ANY of its volumes (a volume can only be locked when nothing is open)

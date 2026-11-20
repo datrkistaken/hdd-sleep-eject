@@ -17,20 +17,25 @@ try {
         $code = $LASTEXITCODE
         $ErrorActionPreference = 'Stop'
         if ($code -ne 0) { throw "Could not restart the controller (exit $code, a reboot may be needed):`n$out" }
-        for ($i = 0; $i -lt 30 -and -not ($disk = Get-TargetDisk); $i++) { Start-Sleep 1 }
-        if (-not $disk) { throw 'Controller restarted but the disk did not appear within 30 s.' }
+        # While the controller rescans, Get-Disk can fail for a moment: that just means "not yet" (same as boot.ps1)
+        $lastError = ''
+        for ($i = 0; $i -lt 30 -and -not $disk; $i++) {
+            try { $disk = Get-TargetDisk } catch { $lastError = $_.Exception.Message }
+            if (-not $disk) { Start-Sleep 1 }
+        }
+        if (-not $disk) { throw "Controller restarted but the disk did not appear within 30 s. $lastError" }
     }
 
     if ($disk.IsOffline) { Set-Disk -Number $disk.Number -IsOffline $false }
     if ((Get-Disk -Number $disk.Number).IsReadOnly) { Set-Disk -Number $disk.Number -IsReadOnly $false }
 
-    # Wait up to 30 s for the drive letter
+    # Wait up to 30 s for its volumes (with or without a drive letter) to be mounted
     $ok = $false
     for ($i = 0; $i -lt 30; $i++) {
-        if (Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object DriveLetter) { $ok = $true; break }
+        try { if (Get-DiskVolumes $disk) { $ok = $true; break } } catch { }
         Start-Sleep 1
     }
-    if (-not $ok) { throw 'Disk is back but its drive letter did not appear within 30 s.' }
+    if (-not $ok) { throw 'Disk is back but its volumes did not appear within 30 s.' }
 
     # Drive's own idle timer: sleep after 10 min without I/O (120 x 5 s).
     # It resets when power is lost, so we set it every time.

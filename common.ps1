@@ -39,6 +39,16 @@ function Get-DiskLetters($disk) {
     @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object DriveLetter | ForEach-Object { "$($_.DriveLetter)" })
 }
 
+# Partitions that hold a file system but have NO drive letter (e.g. mounted into a folder like C:\Data).
+# The open-file check works through drive letters, so it cannot see files open on these.
+# Hidden partitions without a file system (MSR, empty) are not listed: nothing can be open on them.
+function Get-UncheckedPartitions($disk) {
+    @(Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object { -not $_.DriveLetter } | Where-Object {
+        $v = Get-Volume -Partition $_ -ErrorAction SilentlyContinue
+        $v -and $v.FileSystem
+    } | ForEach-Object { "partition $($_.PartitionNumber)" })
+}
+
 # Runs smartctl. Windows PowerShell 5.1 turns native stderr into terminating errors under 'Stop',
 # so it runs with 'Continue' here. smartctl's exit code is a bit mask: bits 0-2 mean the command itself
 # failed; higher bits only describe the disk's health/logs (a worn disk sets them), so they are ignored.

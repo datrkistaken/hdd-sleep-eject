@@ -121,6 +121,7 @@ Your choice is saved in `config.psd1` and every sleep/wake is logged to `log.txt
 
 - **Task Manager blocks the eject.** Its Performance tab keeps the physical disk open, so close it before using HDD Sleep. If an eject is refused, the disk is put back online and nothing changes.
 - Programs using the disk (Steam libraries, an open video, a download) must be closed. `sleep.ps1` checks for open files and refuses otherwise. An Explorer window showing the disk is fine.
+- Every volume on the disk needs a drive letter. The open-file check works through drive letters, so if a volume has none (or is only mounted into a folder), `sleep.ps1` refuses for safety.
 - If a controller restart ever fails, Windows may mark it "reboot required". After that, live re-attach
   won't work until you reboot once.
 - Polling the disk (e.g. `smartctl -i`) wakes it up. To check without waking it: `smartctl -n standby -i /dev/pdN`

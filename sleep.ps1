@@ -10,10 +10,11 @@ $wentOffline = $false
 try {
     $disk = Get-TargetDisk
     if (-not $disk) {
-        # Already ejected
+        # Most likely already ejected. A pulled cable or a driver problem looks the same from here,
+        # so the log says "not visible" instead of claiming it is asleep. No command is sent either way.
         Set-State 'asleep'
-        Write-Log 'SLEEP' 'already ejected'
-        Show-Message 'The disk is already asleep.' 'HDD sleep' 64 3
+        Write-Log 'SLEEP' 'disk not visible (already ejected, or disconnected) - nothing done'
+        Show-Message 'The disk is not visible: it is already asleep (or disconnected).' 'HDD sleep' 64 3
         exit 0
     }
 
@@ -22,6 +23,16 @@ try {
     $letters = Get-DiskLetters $disk
     $path    = Get-SmartPath $disk
     $dev     = Get-TargetDevice
+
+    # 2) Safety, part 0: the open-file check below only sees volumes that have a drive letter.
+    #    A volume without one (mounted into a folder, or no letter at all) cannot be checked, so refuse.
+    #    (An offline disk has no mounted volumes, so nothing can be open on it.)
+    $unchecked = if ($disk.IsOffline) { @() } else { Get-UncheckedPartitions $disk }
+    if ($unchecked) {
+        Write-Log 'SLEEP' "CANCELLED - volume without a drive letter, open files can't be checked: $($unchecked -join ', ')"
+        Show-Message "The disk has a volume without a drive letter ($($unchecked -join ', ')).`n`nOpen files on it can't be checked, so the disk was not put to sleep for safety. Give it a drive letter in Disk Management." 'Could not put the disk to sleep' 48
+        exit 1
+    }
 
     # 2) Safety: is anything using the disk? Going offline would force its volumes closed and lose unsaved writes.
     #    a) programs running from it, b) ANY open file on it (a volume can only be locked when nothing is open)
